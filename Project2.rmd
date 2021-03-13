@@ -1,0 +1,169 @@
+---
+title: "Project2"
+author: "Rex Cory"
+date: "3/10/2021"
+output:
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = normalizePath("C:/Users/arati/Desktop/TBANLT 560/DMBA-R-datasets/DMBA-R-datasets"))
+```
+
+```{r necessary packages, eval=FALSE, include=FALSE}
+#install.packages("ROCR")##Keep
+
+```
+
+```{r library packages}
+library(dplyr)
+library(plyr)
+library(caret)
+# library(class)##Keep
+library(e1071)
+# library(FNN) ##Keep
+# library(gmodels) ##Keep
+# library(psych)##May Need
+library(klaR)
+library(nnet)
+library(MASS)
+library(rpart)
+library(mlbench)
+library(randomForest)
+library(party)
+library(ipred)
+library(ROCR)
+
+
+```
+
+```{r load data}
+data(BreastCancer)
+```
+
+```{r Missing Values, ID, and Partition}
+# remove missing values
+BreastCancer <- na.omit(BreastCancer) 
+# remove the unique identifier
+BreastCancer$Id <- NULL
+# partition the data set for 60% training and 40% evaluation 
+set.seed(1234) 
+smp_size <- floor(0.6 * nrow(BreastCancer))
+train_ind <- sample(seq_len(nrow(BreastCancer)), size = smp_size)
+train.df <- BreastCancer[train_ind, ]
+eval.df <- BreastCancer[-train_ind, ]
+```
+
+```{r Support Vector Network}
+mysvm <- svm(Class ~ ., train.df)
+mysvm.pred <- predict(mysvm, eval.df)
+```
+
+
+```{r Naive Bayes}
+mynb <- NaiveBayes(Class ~ ., train.df)
+mynb.pred <- predict(mynb,eval.df)
+```
+
+```{r Neural Net}
+mynnet <- nnet(Class ~ ., train.df, size=1)
+mynnet.pred <- predict(mynnet,eval.df,type="class")
+```
+
+```{r Decision Trees}
+mytree <- rpart(Class ~ ., train.df)
+plot(mytree); text(mytree) # in "iris_tree.ps"
+summary(mytree)
+mytree.pred <- predict(mytree,eval.df,type="class")
+```
+
+```{r Leave One Out Cross Validation}
+ans <- numeric(length(eval.df[,1]))
+for (i in 1:length(eval.df[,1])) {
+  mytree <- rpart(Class ~ ., eval.df[-i,])
+  mytree.pred <- predict(mytree,eval.df[i,],type="class")
+  ans[i] <- mytree.pred
+}
+ans <- factor(ans,labels=levels(eval.df$Class))
+```
+
+```{r Regularised Discriminant Analysis}
+myrda <- rda(Class ~ ., train.df)
+myrda.pred <- predict(myrda, eval.df)
+```
+
+```{r Random Forests}
+myrf <- randomForest(Class ~ ., train.df)
+myrf.pred <- predict(myrf, eval.df)
+```
+
+```{r Combine Predictions}
+#Convert predictions to df
+myrfResults <- data.frame(myrf.pred)
+myrdaResults <- data.frame(myrda.pred)
+LOOCVResults <- data.frame(ans)
+DTResults <- data.frame(mytree.pred)
+NNResults <- data.frame(mynnet.pred)
+NBResults <- data.frame(mynb.pred)
+SVMResults <- data.frame(mysvm.pred)
+
+#Create combinded df with all results
+combinedresults <- cbind(myrfResults[, 1], myrdaResults[, 1], LOOCVResults, DTResults, NNResults, NBResults[, 1], SVMResults)
+
+#rename columns in combined df
+names(combinedresults) <- c("rfPred","rdaPred", "LOOCVPred", "DTPred", "NNPred", "NBPred","SVPred")
+
+#Convert results to numerical and sum
+sumPred <- ifelse(combinedresults$rfPred %in% "malignant",1,0) + ifelse(combinedresults$rdaPred %in% "malignant",1,0) + ifelse(combinedresults$LOOCVPred %in% "malignant",1,0) + ifelse(combinedresults$DTPred %in% "malignant",1,0)+ ifelse(combinedresults$NNPred %in% "malignant",1,0)+ ifelse(combinedresults$NBPred %in% "malignant",1,0)+ ifelse(combinedresults$SVPred %in% "malignant",1,0)
+
+#If majority malignant then malignant
+allPred <- ifelse(sumPred > 3, "malignant", "benign")
+```
+
+```{r Compare Accuracies}
+#create a df to store each models accuracy
+accuracy.df <- data.frame(PredModel = c("AllPred","rfPred","rdaPred", "LOOCVPred", "DTPred", "NNPred", "NBPred","SVPred"), accuracy = rep(0, 8))
+
+#Get AllPred Accuracy
+accuracy.df[1,2] <- confusionMatrix(as.factor(allPred), as.factor(eval.df$Class))$overall[1]
+
+#Get rfPred Accuracy
+accuracy.df[2,2] <- confusionMatrix(as.factor(combinedresults$rfPred), as.factor(eval.df$Class))$overall[1]
+
+#Get rdaPred Accuracy
+accuracy.df[3,2] <- confusionMatrix(as.factor(combinedresults$rdaPred), as.factor(eval.df$Class))$overall[1]
+
+#Get LOOCVPred Accuracy
+accuracy.df[4,2] <- confusionMatrix(as.factor(combinedresults$LOOCVPred), as.factor(eval.df$Class))$overall[1]
+
+#Get DTPred Accuracy
+accuracy.df[5,2] <- confusionMatrix(as.factor(combinedresults$DTPred), as.factor(eval.df$Class))$overall[1]
+
+#Get NNPred Accuracy
+accuracy.df[6,2] <- confusionMatrix(as.factor(combinedresults$NNPred), as.factor(eval.df$Class))$overall[1]
+
+#Get NBPred Accuracy
+accuracy.df[7,2] <- confusionMatrix(as.factor(combinedresults$NBPred), as.factor(eval.df$Class))$overall[1]
+
+#Get SVPred Accuracy
+accuracy.df[8,2] <- confusionMatrix(as.factor(combinedresults$SVPred), as.factor(eval.df$Class))$overall[1]
+
+#Return Accuracy Calculations
+accuracy.df
+
+#Using the majority approach matched the best output from using any single model. Only 1 of the original models would have produced the same level of accuracy, but the other 6 if used in isolation would have produced a worse prediction. Using the ensemble corrects for the predictive deficiency of the other models. 
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
